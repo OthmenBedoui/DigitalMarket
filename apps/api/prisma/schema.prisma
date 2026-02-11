@@ -1,0 +1,271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DeliveryType {
+  AUTO_DELIVERY
+  MANUAL_DELIVERY
+  FILE_DOWNLOAD
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  username       String?         @unique
+  passwordHash   String
+  role           Role            @default(USER)
+  isEmailVerified Boolean        @default(false)
+  refreshToken   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  orders         Order[]
+  reviews        Review[]
+  tickets        SupportTicket[]
+  wishlistItems  WishlistItem[]
+  auditLogs      AuditLog[]      @relation("AdminActor")
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String?
+  parentId    String?
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  parent      Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryTree")
+  products    Product[]
+
+  @@index([parentId])
+}
+
+model Product {
+  id              String         @id @default(cuid())
+  title           String
+  slug            String         @unique
+  description     String
+  categoryId      String
+  subcategory     String?
+  images          String[]
+  price           Decimal        @db.Decimal(10, 2)
+  discountPercent Int            @default(0)
+  stock           Int?
+  isUnlimited     Boolean        @default(false)
+  deliveryType    DeliveryType
+  fileUrl         String?
+  ratingAvg       Float          @default(0)
+  ratingCount     Int            @default(0)
+  status          ProductStatus  @default(ACTIVE)
+  isFeatured      Boolean        @default(false)
+  isFlashSale     Boolean        @default(false)
+  flashSalePrice  Decimal?       @db.Decimal(10, 2)
+  seoTitle        String?
+  seoDescription  String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  category        Category       @relation(fields: [categoryId], references: [id])
+  orderItems      OrderItem[]
+  digitalKeys     DigitalKey[]
+  reviews         Review[]
+  wishlistItems   WishlistItem[]
+
+  @@index([categoryId])
+  @@index([status, isFeatured])
+}
+
+model Order {
+  id                 String       @id @default(cuid())
+  userId             String
+  orderNumber        String       @unique
+  status             OrderStatus  @default(PENDING)
+  subtotal           Decimal      @db.Decimal(10, 2)
+  discountAmount     Decimal      @default(0) @db.Decimal(10, 2)
+  total              Decimal      @db.Decimal(10, 2)
+  paymentMethod      String
+  paymentProviderRef String?
+  couponId           String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  user               User         @relation(fields: [userId], references: [id])
+  items              OrderItem[]
+  coupon             Coupon?      @relation(fields: [couponId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+model OrderItem {
+  id               String      @id @default(cuid())
+  orderId          String
+  productId        String
+  quantity         Int         @default(1)
+  unitPrice        Decimal     @db.Decimal(10, 2)
+  totalPrice       Decimal     @db.Decimal(10, 2)
+  assignedKeyId    String?
+  deliverySnapshot Json?
+
+  order            Order       @relation(fields: [orderId], references: [id])
+  product          Product     @relation(fields: [productId], references: [id])
+  assignedKey      DigitalKey? @relation("AssignedKey", fields: [assignedKeyId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model DigitalKey {
+  id            String      @id @default(cuid())
+  productId     String
+  keyValue      String
+  isUsed        Boolean     @default(false)
+  usedAt        DateTime?
+  source        String?     // csv import, manual
+  assignedToId  String?
+  createdAt     DateTime    @default(now())
+
+  product       Product     @relation(fields: [productId], references: [id])
+  assignedItems OrderItem[] @relation("AssignedKey")
+
+  @@index([productId, isUsed])
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  userId      String
+  productId   String
+  rating      Int
+  title       String?
+  comment     String?
+  isApproved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+}
+
+model Coupon {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  description     String?
+  discountPercent Int?
+  discountFixed   Decimal?  @db.Decimal(10, 2)
+  minOrderAmount  Decimal?  @db.Decimal(10, 2)
+  maxUsage        Int?
+  usedCount       Int       @default(0)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  orders          Order[]
+}
+
+model SupportTicket {
+  id          String         @id @default(cuid())
+  userId      String
+  subject     String
+  message     String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority  @default(MEDIUM)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user        User           @relation(fields: [userId], references: [id])
+}
+
+model Settings {
+  id                     Int      @id @default(1)
+  siteName               String   @default("DigitalMarket")
+  supportEmail           String
+  defaultCurrency        String   @default("USD")
+  maintenanceMode        Boolean  @default(false)
+  stripePublicKey        String?
+  stripeWebhookSecret    String?
+  paypalClientId         String?
+  featuredProductsLimit  Int      @default(8)
+  updatedAt              DateTime @updatedAt
+}
+
+model WishlistItem {
+  id          String   @id @default(cuid())
+  userId      String
+  productId   String
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+}
+
+model BlogPost {
+  id            String   @id @default(cuid())
+  title         String
+  slug          String   @unique
+  excerpt       String?
+  content       String
+  coverImage    String?
+  isPublished   Boolean  @default(false)
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  action      String
+  entityType  String
+  entityId    String
+  payload     Json?
+  createdAt   DateTime @default(now())
+
+  admin       User     @relation("AdminActor", fields: [adminId], references: [id])
+
+  @@index([adminId, createdAt])
+}
